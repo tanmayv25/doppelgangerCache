@@ -54,6 +54,7 @@
 #include "null_core.h"
 #include "ooo_core.h"
 #include "part_repl_policies.h"
+#include "rrip_repl.h"
 #include "pin_cmd.h"
 #include "prefetcher.h"
 #include "proc_stats.h"
@@ -74,6 +75,8 @@
 #include "virt/port_virtualizer.h"
 #include "weave_md1_mem.h" //validation, could be taken out...
 #include "zsim.h"
+#include "limits.h"
+#include "float.h"
 
 extern void EndOfPhaseActions(); //in zsim.cpp
 
@@ -82,7 +85,7 @@ extern void EndOfPhaseActions(); //in zsim.cpp
  * follow the layout of zinfo, top-down.
  */
 
-BaseCache* BuildCacheBank(Config& config, const string& prefix, g_string& name, uint32_t bankSize, bool isTerminal, uint32_t domain) {
+BaseCache* BuildCacheBank(Config& config, const string& prefix, g_string& name, uint32_t bankSize, bool isTerminal, uint32_t domain, bool isLLC) {
     string type = config.get<const char*>(prefix + "type", "Simple");
     // Shortcut for TraceDriven type
     if (type == "TraceDriven") {
@@ -144,11 +147,21 @@ BaseCache* BuildCacheBank(Config& config, const string& prefix, g_string& name, 
     //Replacement policy
     string replType = config.get<const char*>(prefix + "repl.type", (arrayType == "IdealLRUPart")? "IdealLRUPart" : "LRU");
     ReplPolicy* rp = nullptr;
+    ReplPolicy* rp_dpg_d = nullptr;
+    ReplPolicy* rp_dpg_t = nullptr;
+    
+    
+    //Tanmay: Instantiating replacement for DPG in LLC
+    if (isLLC) {
+        // Tanmay: Assuming hard ratios of (precise cache = tag_lines and data_lines to be 0.5 times of tag_lines)
+        rp_dpg_d = new LRUReplPolicy_DPG_d<false>(numLines/2);
+        rp_dpg_t = new LRUReplPolicy_DPG_t<false>(numLines);
+    }
 
     if (replType == "LRU" || replType == "LRUNoSh") {
-        bool sharersAware = (replType == "LRU") && !isTerminal;
-        if (sharersAware) {
-            rp = new LRUReplPolicy<true>(numLines);
+        //bool sharersAware = (replType == "LRU") && !isTerminal;
+        if (0) {    //Tanmay: disabling the sharers aware policy
+           rp = new LRUReplPolicy<true>(numLines);
         } else {
             rp = new LRUReplPolicy<false>(numLines);
         }
@@ -164,6 +177,12 @@ BaseCache* BuildCacheBank(Config& config, const string& prefix, g_string& name, 
         rp = new NRUReplPolicy(numLines, candidates);
     } else if (replType == "Rand") {
         rp = new RandReplPolicy(candidates);
+    } else if (replType == "SRRIP") {
+        // max value of RRPV, you need to pass it to your SRRIP constructor
+        uint32_t rpvMax = config.get<uint32_t>(prefix + "repl.rpvMax", 3);
+        assert(isPow2(rpvMax + 1));
+        // add your SRRIP construction code here
+
     } else if (replType == "WayPart" || replType == "Vantage" || replType == "IdealLRUPart") {
         if (replType == "WayPart" && arrayType != "SetAssoc") panic("WayPart replacement requires SetAssoc array");
 
@@ -228,11 +247,25 @@ BaseCache* BuildCacheBank(Config& config, const string& prefix, g_string& name, 
     }
     assert(rp);
 
+    DPG_Array* array_dpg = nullptr;
+    int imin, imax;
+    float fmin, fmax;
 
+    imin = (int)config.get<uint32_t>(prefix + "array.imin", INT_MIN + 10); // The defalt values are set for bodytrack
+    imax = (int)config.get<uint32_t>(prefix + "array.imax", INT_MAX - 10); // he default values are set for bodyrack
+    fmin = (float)config.get<uint32_t>(prefix + "array.fmin", 0);
+    fmax = (float)config.get<uint32_t>(prefix + "array.fmax", 0);
+    
+    //Tanmay : building the DPG array (data and tag) for LLC
+    if(isLLC) {
+        info("imin %d imax %d fmin %f fmax %f", imin, imax,fmin,fmax); 
+        array_dpg = new DPG_Array(numLines, ways, rp_dpg_t, rp_dpg_d, hf, imin, imax, fmin, fmax); //Tanmay: NULL is passed becaus DPG will always be the LLC
+    }
+    
     //Alright, build the array
     CacheArray* array = nullptr;
     if (arrayType == "SetAssoc") {
-        array = new SetAssocArray(numLines, ways, rp, hf);
+        array = new SetAssocArray(numLines, ways, rp, hf, isLLC);
     } else if (arrayType == "Z") {
         array = new ZArray(numLines, ways, candidates, rp, hf);
     } else if (arrayType == "IdealLRU") {
@@ -262,15 +295,27 @@ BaseCache* BuildCacheBank(Config& config, const string& prefix, g_string& name, 
     // Finally, build the cache
     Cache* cache;
     CC* cc;
+    CC* cc_dpg = nullptr;
+    
     if (isTerminal) {
         cc = new MESITerminalCC(numLines, name);
+    } else if (isLLC) {
+        cc = new MESICC(numLines * 2, nonInclusiveHack, name);
+        cc_dpg = cc;
+        rp_dpg_t->setCC(cc);
+        rp_dpg_d->setCC(cc);
     } else {
         cc = new MESICC(numLines, nonInclusiveHack, name);
+
     }
     rp->setCC(cc);
     if (!isTerminal) {
         if (type == "Simple") {
-            cache = new Cache(numLines, cc, array, rp, accLat, invLat, name);
+            if(isLLC) {
+                cache = new Cache(numLines, cc, cc_dpg, array, array_dpg, rp, rp_dpg_t, rp_dpg_d, accLat, invLat, name);
+            } else {
+                cache = new Cache(numLines, cc, array, rp, accLat, invLat, name);
+            }
         } else if (type == "Timing") {
             uint32_t mshrs = config.get<uint32_t>(prefix + "mshrs", 16);
             uint32_t tagLat = config.get<uint32_t>(prefix + "tagLat", 5);
@@ -371,7 +416,7 @@ MemObject* BuildMemoryController(Config& config, uint32_t lineSize, uint32_t fre
 
 typedef vector<vector<BaseCache*>> CacheGroup;
 
-CacheGroup* BuildCacheGroup(Config& config, const string& name, bool isTerminal) {
+CacheGroup* BuildCacheGroup(Config& config, const string& name, bool isTerminal, bool isLLC) {
     CacheGroup* cgp = new CacheGroup;
     CacheGroup& cg = *cgp;
 
@@ -412,7 +457,7 @@ CacheGroup* BuildCacheGroup(Config& config, const string& name, bool isTerminal)
             }
             g_string bankName(ss.str().c_str());
             uint32_t domain = (i*banks + j)*zinfo->numDomains/(caches*banks); //(banks > 1)? nextDomain() : (i*banks + j)*zinfo->numDomains/(caches*banks);
-            cg[i][j] = BuildCacheBank(config, prefix, bankName, bankSize, isTerminal, domain);
+            cg[i][j] = BuildCacheBank(config, prefix, bankName, bankSize, isTerminal, domain, isLLC);
         }
     }
 
@@ -469,6 +514,8 @@ static void InitSystem(Config& config) {
     for (auto& it : childMap) if (!parentMap.count(it.first)) parentlessCacheGroups.push_back(it.first);
     if (parentlessCacheGroups.size() != 1) panic("Only one last-level cache allowed, found: %s", Str(parentlessCacheGroups).c_str());
     string llc = parentlessCacheGroups[0];
+    
+    bool isLLC= true; // Will mark the Level3 caches
 
     auto isTerminal = [&](string group) -> bool {
         return childMap[group].size() == 0;
@@ -482,7 +529,8 @@ static void InitSystem(Config& config) {
         string group = fringe.front();
         fringe.pop_front();
         if (cMap.count(group)) panic("The cache 'tree' has a loop at %s", group.c_str());
-        cMap[group] = BuildCacheGroup(config, group, isTerminal(group));
+        cMap[group] = BuildCacheGroup(config, group, isTerminal(group), isLLC);
+        isLLC = false;
         for (auto& childVec : childMap[group]) fringe.insert(fringe.end(), childVec.begin(), childVec.end());
     }
 
@@ -1022,6 +1070,10 @@ void SimInit(const char* configFile, const char* outputDir, uint32_t shmid) {
     config.writeAndClose((string(zinfo->outputDir) + "/out.cfg").c_str(), strictConfig);
 
     zinfo->contentionSim->postInit();
+
+    // Init approximation regions
+    approxTree23 = (tree23_t *) approxInfo.alloc(compare, nullptr);
+    gm_set_approx_ptr(approxTree23);
 
     info("Initialization complete");
 

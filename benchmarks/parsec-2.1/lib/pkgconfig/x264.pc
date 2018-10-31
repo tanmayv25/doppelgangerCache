@@ -1,4 +1,4 @@
-prefix=/home/jayee/gitrepos/CADBP/benchmarks/parsec-2.1/pkgs/apps/x264/inst/amd64-linux.gcc-hooks
+prefix=/usr/local
 exec_prefix=${prefix}
 libdir=${exec_prefix}/lib
 includedir=${prefix}/include

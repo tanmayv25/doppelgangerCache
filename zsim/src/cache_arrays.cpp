@@ -26,10 +26,17 @@
 #include "cache_arrays.h"
 #include "hash.h"
 #include "repl_policies.h"
+#include "zsim.h"
+#include "math.h"
+
+/* Tanmay: The following limits are assumed for simplicity for a given data type */
+// The paper also makes this assumption for avoiding complexity, though it might
+// cause inaccuracy by clamping runtime values outside the range to min/max values defined 
+// Might have to change these values on the basis of Purna's analysis
 
 /* Set-associative array implementation */
 
-SetAssocArray::SetAssocArray(uint32_t _numLines, uint32_t _assoc, ReplPolicy* _rp, HashFamily* _hf) : rp(_rp), hf(_hf), numLines(_numLines), assoc(_assoc)  {
+SetAssocArray::SetAssocArray(uint32_t _numLines, uint32_t _assoc, ReplPolicy* _rp, HashFamily* _hf, bool _isLLC) : rp(_rp), hf(_hf), numLines(_numLines), assoc(_assoc), isLLC(_isLLC)  {
     array = gm_calloc<Address>(numLines);
     numSets = numLines/assoc;
     setMask = numSets - 1;

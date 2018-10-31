@@ -44,8 +44,15 @@ class Network;
 class Cache : public BaseCache {
     protected:
         CC* cc;
+        CC* cc_dpg;
         CacheArray* array;
+        DPG_Array* array_dpg;
         ReplPolicy* rp;
+        // Added replacement policy for the tag array
+        ReplPolicy* rp_dpg_t;
+        // Added the replacement policy for the data array
+        ReplPolicy* rp_dpg_d;
+
 
         uint32_t numLines;
 
@@ -57,6 +64,8 @@ class Cache : public BaseCache {
 
     public:
         Cache(uint32_t _numLines, CC* _cc, CacheArray* _array, ReplPolicy* _rp, uint32_t _accLat, uint32_t _invLat, const g_string& _name);
+        Cache(uint32_t _numLines, CC* _cc, CC* _cc_dpg, CacheArray* _array, DPG_Array* _array_dpg, ReplPolicy* _rp, ReplPolicy* _rp_dpg_t, ReplPolicy* _rp_dpg_d, uint32_t _accLat, uint32_t _invLat, const g_string& _name);
+
 
         const char* getName();
         void setParents(uint32_t _childId, const g_vector<MemObject*>& parents, Network* network);
@@ -76,6 +85,10 @@ class Cache : public BaseCache {
 
         void startInvalidate(); // grabs cc's downLock
         uint64_t finishInvalidate(const InvReq& req); // performs inv and releases downLock
+    
+    private:
+        // Tanmay: This function returns True if the address is approximable.
+        bool isApprox(const Address lineAddr);
 };
 
 #endif  // CACHE_H_

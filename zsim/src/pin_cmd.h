@@ -51,7 +51,8 @@ class PinCmd : public GlobAlloc {
     public:
         PinCmd(Config* conf, const char* configFile, const char* outputDir, uint64_t shmid);
         g_vector<g_string> getPinCmdArgs(uint32_t procIdx);
-        g_vector<g_string> getFullCmdArgs(uint32_t procIdx, const char** inputFile);
+        //g_vector<g_string> getFullCmdArgs(uint32_t procIdx, const char** inputFile);
+        g_vector<g_string> getFullCmdArgs(uint32_t procIdx, g_string &inputFile);
         void setEnvVars(uint32_t procIdx);
 
         uint32_t getNumCmdProcs() {return procInfo.size();}
