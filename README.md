@@ -1,4 +1,4 @@
-#DoppelGanger Cache
+# DoppelGanger Cache
 
 In our Term Project for CSE614: Computer Architecture we have implemented this DoppelGanger Cache as described in [Doppelganger: A cache for approximate computing](https://www.researchgate.net/publication/282734767_Doppelganger_A_Cache_for_Approximate_Computing). This cache consumes significantly less power by reducing the on-chip silicon estate occupied by Last-Level-Cache. The cache lines are shared among different line addresses which map to the same key in the hash map. The authors propose modifying Instruction Set Architecture (ISA) to inlcude approximate Load and approximate Store in the ISA. They also propose we need to transfer the expected range for the data along with the newly introduced Assembly intructions. 
 
